@@ -28,13 +28,13 @@ metadata:
       event == "push"
       && (target_branch == "gap-poc" || target_branch.startsWith("eg-bundle-"))
       && ( "bundle/**".pathChanged()
-           || ".tekton/rhoda-operator-bundle-gap-push.yaml".pathChanged()
+           || ".tekton/rhod-operator-bundle-gap-push.yaml".pathChanged()
            || event_title.startsWith("early-gate:") )
   labels:
     appstudio.openshift.io/application: gap-poc
-    appstudio.openshift.io/component: rhoda-operator-bundle-gap
+    appstudio.openshift.io/component: rhod-operator-bundle-gap
     pipelines.appstudio.openshift.io/type: build
-  name: rhoda-operator-bundle-gap-on-push
+  name: rhod-operator-bundle-gap-on-push
   namespace: rhoai-tenant
 spec:
   params:
@@ -50,8 +50,22 @@ spec:
   # eg- prefix matches what monitor-pac-build in the early-gate pipeline
   # reconstructs when its image-tag param is left empty.  Changing one means
   # changing the other.
+  #
+  # rhod-operator-bundle-gap, not rhoda-.  Both Components exist and both are
+  # bound to this repository; the difference that matters is registry
+  # visibility.  monitor-bundle-build resolves the digest it hands to Block 3
+  # through quay.io's anonymous registry v2 token, and rhoda-'s repository is
+  # private:
+  #
+  #     rhoda-operator-bundle-gap   manifests/<tag> -> 401
+  #     rhod-operator-bundle-gap    manifests/<tag> -> 404  (public, tag absent)
+  #
+  # Against the private one the build would still succeed and the monitor
+  # would still pass - it warns rather than fails when a digest will not
+  # resolve - but BUNDLE_IMAGE_DIGEST and BUNDLE_IMAGE_REF_BY_DIGEST would
+  # come back empty, and those two results are the whole of DR-7.
   - name: output-image
-    value: quay.io/redhat-user-workloads/rhoai-tenant/rhoda-operator-bundle-gap:eg-{{revision}}
+    value: quay.io/redhat-user-workloads/rhoai-tenant/rhod-operator-bundle-gap:eg-{{revision}}
   # No rhoai-version param.  The release file passes one, but that is against
   # red-hat-data-services/konflux-central, whose container-build.yaml declares
   # it and forwards it to rhoai-init 0.1.  This pipeline resolves against
@@ -88,7 +102,7 @@ spec:
     - name: pathInRepo
       value: pipelines/container-build.yaml
   taskRunTemplate:
-    serviceAccountName: build-pipeline-rhoda-operator-bundle-gap
+    serviceAccountName: build-pipeline-rhod-operator-bundle-gap
   workspaces:
   - name: git-auth
     secret:

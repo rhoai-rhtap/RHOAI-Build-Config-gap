@@ -19,12 +19,12 @@ metadata:
       event == "pull_request"
       && target_branch == "gap-poc"
       && ( "bundle/**".pathChanged()
-           || ".tekton/rhoda-operator-bundle-gap-pull-request.yaml".pathChanged() )
+           || ".tekton/rhod-operator-bundle-gap-pull-request.yaml".pathChanged() )
   labels:
     appstudio.openshift.io/application: gap-poc
-    appstudio.openshift.io/component: rhoda-operator-bundle-gap
+    appstudio.openshift.io/component: rhod-operator-bundle-gap
     pipelines.appstudio.openshift.io/type: build
-  name: rhoda-operator-bundle-gap-on-pull-request
+  name: rhod-operator-bundle-gap-on-pull-request
   namespace: rhoai-tenant
 spec:
   params:
@@ -36,7 +36,7 @@ spec:
   # is a durable pointer; a PR build is a disposable check and gets exactly one
   # tag, which expires with the image.
   - name: output-image
-    value: quay.io/redhat-user-workloads/rhoai-tenant/rhoda-operator-bundle-gap:on-pr-{{revision}}
+    value: quay.io/redhat-user-workloads/rhoai-tenant/rhod-operator-bundle-gap:on-pr-{{revision}}
   - name: image-expires-after
     value: 5d
   # No rhoai-version - see the push pipeline; rhoai-rhtap/konflux-central's
@@ -66,7 +66,7 @@ spec:
     - name: pathInRepo
       value: pipelines/container-build.yaml
   taskRunTemplate:
-    serviceAccountName: build-pipeline-rhoda-operator-bundle-gap
+    serviceAccountName: build-pipeline-rhod-operator-bundle-gap
   workspaces:
   - name: git-auth
     secret:
