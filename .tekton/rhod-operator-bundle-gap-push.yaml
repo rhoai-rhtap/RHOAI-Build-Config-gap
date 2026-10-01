@@ -24,12 +24,38 @@ metadata:
     # all-quantifier over an empty set is true - but the clause still costs us
     # nothing to keep and nothing to drop, so it goes, because it describes a
     # stage boundary that does not exist in this repo.
+    # The two branch kinds are gated differently, on purpose.
+    #
+    # An eg-bundle-* branch requires an "early-gate:" commit subject, and that
+    # is the only thing it requires.  Creating the branch is itself a push
+    # event, and PaC evaluated the old expression against it: forking
+    # eg-bundle-<uid> off gap-poc started a build at 17:03 on a run whose
+    # push-bundle-to-ephemeral-branch had not executed yet, so the build was of
+    # unprocessed release content.  monitor-bundle-build would then have
+    # latched onto that build and reported it as the gate's result.  A freshly
+    # forked branch inherits gap-poc's tip commit, whose subject is an ordinary
+    # merge message, so requiring the subject is what distinguishes "the gate
+    # pushed processed content" from "the gate created a branch".
+    # push-bundle-to-ephemeral-branch commits with --allow-empty and rejects
+    # any commit-message that does not start with "early-gate:", so the
+    # guarantee holds from both ends.
+    #
+    # pathChanged() cannot do this job: on branch creation there is no
+    # meaningful diff base, and the processed push may legitimately change
+    # nothing (the empty-commit case the push task exists to handle).
+    #
+    # gap-poc keeps the ordinary path-based trigger - it is a normal branch
+    # where an "early-gate:" subject would be the unusual thing.
     pipelinesascode.tekton.dev/on-cel-expression: |
       event == "push"
-      && (target_branch == "gap-poc" || target_branch.startsWith("eg-bundle-"))
-      && ( "bundle/**".pathChanged()
-           || ".tekton/rhod-operator-bundle-gap-push.yaml".pathChanged()
-           || event_title.startsWith("early-gate:") )
+      && (
+           ( target_branch.startsWith("eg-bundle-")
+             && event_title.startsWith("early-gate:") )
+           ||
+           ( target_branch == "gap-poc"
+             && ( "bundle/**".pathChanged()
+                  || ".tekton/rhod-operator-bundle-gap-push.yaml".pathChanged() ) )
+         )
   labels:
     appstudio.openshift.io/application: gap-poc
     appstudio.openshift.io/component: rhod-operator-bundle-gap
