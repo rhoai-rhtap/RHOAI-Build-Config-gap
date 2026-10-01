@@ -173,11 +173,31 @@ spec:
   # first thing to revert before this is used as a real gate.
   - name: skip-checks
     value: "true"
-  # false while iterating - two fewer tasks, and nothing downstream reads either.
+  # false while iterating - one fewer task, and nothing downstream reads it.
   - name: build-source-image
     value: false
+  # true, matching rhoai-fbc-fragment-v3-5-push.yaml.  This was false while
+  # iterating, on the assumption it was as free here as it is for the bundle.
+  # It is not, and the difference is the pipeline, not the parameter:
+  #
+  #   the bundle resolves through container-build.yaml, a single-platform
+  #   buildah that pushes the plain tag directly, so dropping the index costs
+  #   nothing and BUNDLE_IMAGE_DIGEST has always resolved;
+  #
+  #   the FBC resolves through fbc-fragment-build.yaml, which is
+  #   multi-platform-shaped even at one platform.  It tags per platform and
+  #   leaves build-image-index to create the index that carries the plain tag.
+  #
+  # So with this false the build pushed eg-<sha>-linux-x86-64 and the
+  # branch-qualified additional-tag, and eg-<sha> - the exact tag
+  # monitor-fbc-build reconstructs - never existed.  Run 13's FBC build
+  # succeeded and the gate went green with FBC_IMAGE_DIGEST and
+  # FBC_IMAGE_REF_BY_DIGEST both empty, which is DR-F7 unsatisfied.
+  #
+  # monitor-pac-build now fails on that instead of warning (require-digest),
+  # so a regression here is loud rather than silent.
   - name: build-image-index
-    value: false
+    value: true
   # No build-platforms: fbc-fragment-build.yaml already defaults to
   # ['linux/x86_64'], which is the single arch this POC builds.
   - name: build-args-file
