@@ -54,6 +54,17 @@ metadata:
     # The Konflux onboarding file this replaces also added
     # `"bundle/Dockerfile".pathChanged()`.  Not kept: that followed from its
     # dockerfile: bundle/Dockerfile, which was the bundle's, not the catalog's.
+    #
+    # `\\.` in the matches() argument, not `\.`, and it is load-bearing.  This
+    # is a YAML literal block, so the backslashes reach CEL exactly as written;
+    # CEL then unescapes the string literal, and `\\` is how a regex `\.` is
+    # spelled there.  A lone `\.` is not a CEL escape sequence at all, so the
+    # expression fails to PARSE - and a parse failure is not scoped to the
+    # clause it is in.  The whole annotation is unevaluable, both arms die with
+    # it, and PaC skips the PipelineRun without registering a check-run, which
+    # looks from the gate exactly like a build that never started.  Run 10 sat
+    # in monitor-fbc-build on 6f17f90 with zero checks for this reason.
+    # rhoai-fbc-fragment-v3-5-push.yaml has always had the two backslashes.
     pipelinesascode.tekton.dev/on-cel-expression: |
       event == "push"
       && (
@@ -63,7 +74,7 @@ metadata:
            ( target_branch == "gap-poc"
              && ( "catalog/**".pathChanged()
                   || ".tekton/rhoai-fbc-fragment-gap-push.yaml".pathChanged() )
-             && files.all.exists(p, !p.matches('^catalog/catalog-patch\.yaml$')) )
+             && files.all.exists(p, !p.matches('^catalog/catalog-patch\\.yaml$')) )
          )
   labels:
     appstudio.openshift.io/application: gap-poc
