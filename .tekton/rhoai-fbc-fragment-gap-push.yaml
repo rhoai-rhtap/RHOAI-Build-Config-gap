@@ -129,9 +129,29 @@ spec:
   # DR-F4.  One OCP version for the POC, and it has to be the one
   # fbc-processor's OPENSHIFT_VERSION param regenerates - the build reads
   # whatever is committed at this path, so a mismatch would build a stale
-  # catalog and the gate would pass on it.
+  # catalog and the gate would pass on it.  Changing this means changing
+  # fbc-openshift-version in konflux-central's early-gate pipeline too.
+  #
+  # v4.19, matching rhoai-fbc-fragment-v3-5-push.yaml, and not the v4.22 the
+  # POC started with.  catalog/v4.22 in this fork does not build: five of its
+  # channels have two heads each, which `opm serve --cache-only` rejects as an
+  # invalid upgrade graph.
+  #
+  #   alpha, eus-2.25, fast, stable, stable-2.25
+  #     multiple channel heads found in graph:
+  #       rhods-operator.2.25.11, rhods-operator.2.25.8
+  #
+  # Pre-existing in the committed catalog, not something the gate introduces -
+  # the same five channels are broken on gap-poc before any early-gate run
+  # touches them, and the gate's regenerated copy changes image references
+  # only, no channel entries.  v4.19, v4.20 and v4.21 are all clean.
+  #
+  # Note which task would normally have caught this: validate-fbc, which
+  # skip-checks below currently disables.  verify-fbc-images in the gate checks
+  # image references, not opm graph validity, so with skip-checks on there is
+  # nothing between a malformed catalog and the build that fails on it.
   - name: path-context
-    value: catalog/v4.22
+    value: catalog/v4.19
   - name: hermetic
     value: true
   # No prefetch-input: the catalog Dockerfile is a base image plus ADD and an
