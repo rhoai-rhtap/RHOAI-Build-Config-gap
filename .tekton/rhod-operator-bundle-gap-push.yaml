@@ -106,8 +106,25 @@ spec:
     value: true
   # No prefetch-input: bundle/Dockerfile is FROM scratch with COPY only, so
   # cachi2 has nothing to prefetch and hermetic costs nothing.
+  #
+  # TEMPORARY, paired with the same change in the operator repo's
+  # rhods-operator-gap-eg-push.yaml.  Run 4's bundle build took 20 minutes
+  # (02:42:10Z -> 03:02:51Z) for a FROM-scratch image that copies a handful of
+  # YAML files: essentially all of it was the scanners.  skip-checks drops
+  # clair-scan, sast-snyk-check, clamav-scan, sast-shell-check,
+  # sast-unicode-check, deprecated-base-image-check,
+  # ecosystem-cert-preflight-checks and rpms-signature-scan, each of which is
+  # `when: $(params.skip-checks) in ["false"]` in container-build.yaml.
+  #
+  # Safe for what Block 2 and Block 3 need: BUNDLE_IMAGE_DIGEST and
+  # BUNDLE_IMAGE_REF_BY_DIGEST come from the built manifest, not from any
+  # scan result.  Revert before this is used as a real gate.
+  - name: skip-checks
+    value: "true"
+  # false while iterating - one less task, and nothing downstream reads the
+  # source image.
   - name: build-source-image
-    value: true
+    value: false
   - name: build-image-index
     value: false
   - name: build-args-file
