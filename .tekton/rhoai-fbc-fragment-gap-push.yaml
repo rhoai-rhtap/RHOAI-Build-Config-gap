@@ -98,13 +98,10 @@ spec:
     value: '{{source_url}}'
   - name: revision
     value: '{{revision}}'
-  # eg-fbc-<pipelinerun-uid> branches are deleted as soon as the gate finishes,
-  # so the branch-qualified tag is what keeps the image reachable afterwards.
-  - name: additional-tags
-    value:
-    - '{{target_branch}}-{{revision}}'
-  # eg- prefix matches what monitor-pac-build reconstructs when its image-tag
-  # param is left empty.  Changing one means changing the other.
+  # additional-tags used to carry '{{target_branch}}-{{revision}}' next to a
+  # primary tag of eg-{{revision}}.  The primary tag below is now itself
+  # branch-qualified, so the two coincide and a second copy would be the same
+  # string applied twice.
   #
   # The repository must be PUBLIC, for the same reason the bundle's had to be:
   # monitor-fbc-build resolves the digest it publishes as FBC_IMAGE_DIGEST
@@ -116,9 +113,34 @@ spec:
   #
   # Deliberately not quay.io/rhoai/rhoai-fbc-fragment: that is the release
   # repository, and a fragment assembled from unmerged PRs must not land in it
-  # under any tag.
+  # under any tag.  It is also private - 401 to an anonymous token - so the
+  # monitor could not read it even if that rule did not exist.
+  # pull-request-pipelines is public, is already where RHOAI puts non-release
+  # build artifacts, and being a different repository it cannot collide with a
+  # release digest whatever the tag says.
+  #
+  # That repo is shared between components, hence the component-name lead on
+  # the tag.  The remainder is {{target_branch}}-{{revision}}: on a gate run the
+  # first CEL arm above restricts target_branch to eg-fbc-<pipelinerun-uid>, so
+  # this expands to rhoai-fbc-fragment-eg-fbc-<uid>-<40-char-sha> and the eg-
+  # marker is enforced by the trigger rather than by convention.  Those branches
+  # are deleted as soon as the gate finishes, so the tag is what keeps the image
+  # addressable afterwards.
+  #
+  # The second CEL arm fires on gap-poc, which is not a gate run, and there the
+  # same expression yields rhoai-fbc-fragment-gap-poc-<sha>.  That is the point
+  # of deriving the tag from the branch rather than hardcoding "eg-": a plain
+  # dev build does not get labelled as a gate artifact, and the monitor, which
+  # only ever looks for the eg- form, cannot mistake one for the other.
+  #
+  # Length matters here more than elsewhere.  This pipeline is multi-platform-
+  # shaped, so buildah pushes <tag>-linux-x86-64 and leaves build-image-index to
+  # create the index carrying the plain tag.  Worst case is 19 + 7 + 36 + 1 + 40
+  # = 103 characters, plus a 14-character platform suffix = 117, inside Quay's
+  # 128-character tag limit but not by a wide margin.  Lengthening the component
+  # prefix - "rhoai-fbc-fragment-gap-", say - would eat most of what is left.
   - name: output-image
-    value: quay.io/redhat-user-workloads/rhoai-tenant/rhoai-fbc-fragment-gap:eg-{{revision}}
+    value: quay.io/rhoai/pull-request-pipelines:rhoai-fbc-fragment-{{target_branch}}-{{revision}}
   # No rhoai-version and no build-type.  The release file passes both, but that
   # is against red-hat-data-services/konflux-central.  This pipeline resolves
   # against rhoai-rhtap/konflux-central, whose pipelines/fbc-fragment-build.yaml
