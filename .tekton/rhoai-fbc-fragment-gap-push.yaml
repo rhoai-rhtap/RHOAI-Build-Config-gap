@@ -240,7 +240,15 @@ spec:
     - name: pathInRepo
       value: pipelines/fbc-fragment-build.yaml
   taskRunTemplate:
-    serviceAccountName: build-pipeline-rhoai-fbc-fragment-gap
+    # Not build-pipeline-rhoai-fbc-fragment-gap.  Konflux mints a Component's
+    # push credential from that Component's containerImage, so the gap SA can
+    # push to quay.io/redhat-user-workloads/rhoai-tenant/rhoai-fbc-fragment-gap
+    # and nowhere else - against the output-image above it would 401 at push.
+    #
+    # This is the SA of the pull-request-pipelines Component, which already
+    # holds a push credential for that repository, and which
+    # odh-operator-pull-request.yaml uses for the same reason.
+    serviceAccountName: build-pipeline-pull-request-pipelines
   workspaces:
   - name: git-auth
     secret:
