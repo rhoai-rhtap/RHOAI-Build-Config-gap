@@ -238,8 +238,22 @@ spec:
   # so a regression here is loud rather than silent.
   - name: build-image-index
     value: true
-  # No build-platforms: fbc-fragment-build.yaml already defaults to
-  # ['linux/x86_64'], which is the single arch this POC builds.
+  # The four platforms rhoai-fbc-fragment-v3-5-push.yaml builds.  Omitting
+  # this is not neutral: fbc-fragment-build.yaml defaults build-platforms to
+  # ['linux/x86_64'], so the gate was certifying a one-architecture catalog
+  # fragment against a release that ships four.  An FBC fragment is per
+  # architecture - the catalog pins image references, and a reference that
+  # resolves on x86_64 is not evidence it resolves on s390x.
+  #
+  # linux/arm64 here, not the linux-m2xlarge/arm64 the operator push file
+  # uses.  The two release files genuinely differ on that; each is copied as
+  # it stands rather than reconciled.
+  - name: build-platforms
+    value:
+    - linux/x86_64
+    - linux/ppc64le
+    - linux/s390x
+    - linux/arm64
   - name: build-args-file
     value: catalog/catalog_build_args.map
   # A failed gate build is a signal to the gate, not to the release team.
