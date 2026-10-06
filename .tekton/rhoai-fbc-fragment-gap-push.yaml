@@ -227,6 +227,24 @@ spec:
   # A failed gate build is a signal to the gate, not to the release team.
   - name: enable-slack-failure-notification
     value: "false"
+  # The success message is the one that was actually firing.  share-fbc-details
+  # was guarded on tasks.status alone, and a gate build succeeds - that being
+  # the point - so every green run posted "a new CI build is available for
+  # eg-fbc-<uuid>" to the team channel, naming a branch that is deleted
+  # moments later.  Only the failure half had a switch; this is the other half.
+  - name: enable-slack-success-notification
+    value: "false"
+  # No workflow_dispatch into red-hat-data-services from a gate build.
+  #
+  # conforma and smoke are gated on is_nightly, which this file never sets, so
+  # they were already dormant - but dormant by default is not the same as off,
+  # and the standing rule is that the gate triggers no release workflow at all.
+  # trigger-disconnectec-installer-helper was not dormant: its guard reads
+  # `is_nightly in ["true","false"]`, which is every value the param can hold,
+  # so it dispatched rhods-disconnected-install-helper.yml on every FBC build
+  # with branch_name set to the ephemeral eg-fbc-<uuid>.
+  - name: enable-downstream-triggers
+    value: "false"
   pipelineRef:
     resolver: git
     params:
