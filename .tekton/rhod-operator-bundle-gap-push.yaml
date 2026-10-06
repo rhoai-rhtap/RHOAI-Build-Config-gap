@@ -131,27 +131,32 @@ spec:
     value: true
   # No prefetch-input: bundle/Dockerfile is FROM scratch with COPY only, so
   # cachi2 has nothing to prefetch and hermetic costs nothing.
+  # odh-operator-bundle-v3-5-push.yaml omits it for the same reason.
   #
-  # TEMPORARY, paired with the same change in the operator repo's
-  # rhods-operator-gap-eg-push.yaml.  Run 4's bundle build took 20 minutes
-  # (02:42:10Z -> 03:02:51Z) for a FROM-scratch image that copies a handful of
-  # YAML files: essentially all of it was the scanners.  skip-checks drops
-  # clair-scan, sast-snyk-check, clamav-scan, sast-shell-check,
-  # sast-unicode-check, deprecated-base-image-check,
-  # ecosystem-cert-preflight-checks and rpms-signature-scan, each of which is
-  # `when: $(params.skip-checks) in ["false"]` in container-build.yaml.
+  # No skip-checks either, matching that file, which leaves clair-scan,
+  # sast-snyk-check, clamav-scan, sast-shell-check, sast-unicode-check,
+  # deprecated-base-image-check, ecosystem-cert-preflight-checks and
+  # rpms-signature-scan running - all eight are
+  # `when: $(params.skip-checks) in ["false"]` in container-build.yaml, and
+  # container-build.yaml defaults the parameter to "false".
   #
-  # Safe for what Block 2 and Block 3 need: BUNDLE_IMAGE_DIGEST and
-  # BUNDLE_IMAGE_REF_BY_DIGEST come from the built manifest, not from any
-  # scan result.  Revert before this is used as a real gate.
-  - name: skip-checks
-    value: "true"
-  # false while iterating - one less task, and nothing downstream reads the
-  # source image.
+  # This was "true" while iterating and it was the expensive one to leave on:
+  # run 4's bundle build took 20 minutes (02:42:10Z -> 03:02:51Z) for a
+  # FROM-scratch image that copies a handful of YAML files, essentially all
+  # of it scanners.  Expect that back.  What it buys is that the gate now
+  # scans the bundle the way the release build does, rather than certifying
+  # an image nothing looked at.
   - name: build-source-image
-    value: false
+    value: true
+  # false, matching odh-operator-bundle-v3-5-push.yaml.  Unlike the FBC, the
+  # bundle resolves through container-build.yaml - a single-platform buildah
+  # that pushes the plain tag directly - so there is no index to create and
+  # BUNDLE_IMAGE_DIGEST resolves without one.
   - name: build-image-index
     value: false
+  # No build-platforms: container-build.yaml declares no such parameter, and
+  # odh-operator-bundle-v3-5-push.yaml passes none either.  The bundle is
+  # single-architecture in release too, so there is nothing to restore here.
   - name: build-args-file
     value: bundle/bundle_build_args.map
   # A failed gate build is a signal to the gate, not to the release team.

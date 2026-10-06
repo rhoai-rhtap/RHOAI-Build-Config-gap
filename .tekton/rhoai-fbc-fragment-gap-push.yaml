@@ -183,10 +183,10 @@ spec:
   # touches them, and the gate's regenerated copy changes image references
   # only, no channel entries.  v4.19, v4.20 and v4.21 are all clean.
   #
-  # Note which task would normally have caught this: validate-fbc, which
-  # skip-checks below currently disables.  verify-fbc-images in the gate checks
-  # image references, not opm graph validity, so with skip-checks on there is
-  # nothing between a malformed catalog and the build that fails on it.
+  # The task that catches this is validate-fbc, which skip-checks below had
+  # disabled when run 11 hit it and no longer does.  verify-fbc-images in the
+  # gate checks image references, not opm graph validity, so validate-fbc is
+  # the only thing standing between a malformed catalog and a build failure.
   - name: path-context
     value: catalog/v4.19
   - name: hermetic
@@ -195,24 +195,27 @@ spec:
   # `opm serve --cache-only`, so cachi2 has nothing to prefetch and hermetic
   # costs nothing.
   #
-  # TEMPORARY, paired with the same change in the operator repo's
-  # rhods-operator-gap-eg-push.yaml and in rhod-operator-bundle-gap-push.yaml.
-  # skip-checks drops fbc-fips-check-oci-ta, sast-shell-check,
-  # sast-unicode-check, deprecated-base-image-check, validate-fbc and
-  # fbc-target-index-pruning-check, each of which is
+  # false, matching rhoai-fbc-fragment-v3-5-push.yaml.  This was "true" while
+  # iterating on Blocks 1-3, which dropped fbc-fips-check-oci-ta,
+  # sast-shell-check, sast-unicode-check, deprecated-base-image-check,
+  # validate-fbc and fbc-target-index-pruning-check - each of them
   # `when: $(params.skip-checks) in ["false"]` in fbc-fragment-build.yaml.
   #
-  # Note what this costs, which is more than it costs for the other two:
-  # validate-fbc is the task that would catch a structurally invalid catalog,
-  # and verify-fbc-images in the gate pipeline checks image references, not opm
-  # schema validity.  Safe for what Block 3 needs right now - FBC_IMAGE_DIGEST
-  # and FBC_IMAGE_REF_BY_DIGEST come from the built manifest - but this is the
-  # first thing to revert before this is used as a real gate.
+  # It cost more here than it did for the operator or the bundle.  validate-fbc
+  # is the only task in the chain that checks opm schema and graph validity;
+  # verify-fbc-images in the gate checks image references and nothing else.  So
+  # with this on there was nothing between a malformed catalog and the build
+  # that fails on it, which is exactly how run 11 died - the invalid v4.22
+  # upgrade graph reached `opm serve --cache-only` because the task that would
+  # have reported it had been switched off.
+  #
+  # Reverted first, ahead of the remaining temporary settings, for that reason.
   - name: skip-checks
-    value: "true"
-  # false while iterating - one fewer task, and nothing downstream reads it.
+    value: "false"
+  # true, matching rhoai-fbc-fragment-v3-5-push.yaml.  false while iterating -
+  # one fewer task, and nothing in the gate reads it.
   - name: build-source-image
-    value: false
+    value: true
   # true, matching rhoai-fbc-fragment-v3-5-push.yaml.  This was false while
   # iterating, on the assumption it was as free here as it is for the bundle.
   # It is not, and the difference is the pipeline, not the parameter:
@@ -235,8 +238,22 @@ spec:
   # so a regression here is loud rather than silent.
   - name: build-image-index
     value: true
-  # No build-platforms: fbc-fragment-build.yaml already defaults to
-  # ['linux/x86_64'], which is the single arch this POC builds.
+  # The four platforms rhoai-fbc-fragment-v3-5-push.yaml builds.  Omitting
+  # this is not neutral: fbc-fragment-build.yaml defaults build-platforms to
+  # ['linux/x86_64'], so the gate was certifying a one-architecture catalog
+  # fragment against a release that ships four.  An FBC fragment is per
+  # architecture - the catalog pins image references, and a reference that
+  # resolves on x86_64 is not evidence it resolves on s390x.
+  #
+  # linux/arm64 here, not the linux-m2xlarge/arm64 the operator push file
+  # uses.  The two release files genuinely differ on that; each is copied as
+  # it stands rather than reconciled.
+  - name: build-platforms
+    value:
+    - linux/x86_64
+    - linux/ppc64le
+    - linux/s390x
+    - linux/arm64
   - name: build-args-file
     value: catalog/catalog_build_args.map
   # A failed gate build is a signal to the gate, not to the release team.
