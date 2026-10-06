@@ -100,6 +100,21 @@ spec:
   # of deriving the tag from the branch rather than hardcoding "eg-": a plain
   # dev build does not get labelled as a gate artifact, and the monitor, which
   # only ever looks for the eg- form, cannot mistake one for the other.
+  #
+  # The component prefix is prod's Konflux component name - the same name as
+  # the release repository, quay.io/rhoai/odh-operator-bundle - not this fork's
+  # Component name (rhod-operator-bundle-gap).  The gate's three blocks share one
+  # repository, so the prefix is the only thing that says which of them an
+  # image came from, and it should mean the same here as it does in prod.
+  #
+  # Changing this string means changing image-tag on monitor-bundle-build in
+  # konflux-central's early-gate/early-gate-component-pipeline.yaml in the
+  # same breath.  The monitor does not read the tag off the build; it
+  # reconstructs it from the branch and commit and polls for it.  Out of
+  # step, the build succeeds, the poll 404s six times, the monitor warns and
+  # writes an empty digest, and the gate fails somewhere downstream on
+  # "No ... image supplied" - pointing at the consumer rather than at the
+  # tag.  That is run 13, and it cost a session to find.
   - name: output-image
     value: quay.io/rhoai/pull-request-pipelines:odh-operator-bundle-{{target_branch}}-{{revision}}
   # No rhoai-version param.  The release file passes one, but that is against
