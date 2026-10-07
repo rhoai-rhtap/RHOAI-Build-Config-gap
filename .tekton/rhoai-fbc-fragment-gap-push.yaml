@@ -261,22 +261,48 @@ spec:
   # so a regression here is loud rather than silent.
   - name: build-image-index
     value: true
-  # The four platforms rhoai-fbc-fragment-v3-5-push.yaml builds.  Omitting
-  # this is not neutral: fbc-fragment-build.yaml defaults build-platforms to
-  # ['linux/x86_64'], so the gate was certifying a one-architecture catalog
-  # fragment against a release that ships four.  An FBC fragment is per
-  # architecture - the catalog pins image references, and a reference that
-  # resolves on x86_64 is not evidence it resolves on s390x.
+  # TEMPORARY - x86_64 only while the gate is being brought up.  Restore the
+  # four platforms below before this is relied on.  Matches the same
+  # deviation on the operator side in
+  # rhods-operator-gap/.tekton/rhods-operator-gap-eg-push.yaml, and the two
+  # should be reverted together.
   #
-  # linux/arm64 here, not the linux-m2xlarge/arm64 the operator push file
-  # uses.  The two release files genuinely differ on that; each is copied as
-  # it stands rather than reconciled.
+  #   - name: build-platforms
+  #     value:
+  #     - linux/x86_64
+  #     - linux/ppc64le
+  #     - linux/s390x
+  #     - linux/arm64
+  #
+  # Those are the four rhoai-fbc-fragment-v3-5-push.yaml builds.  The cost of
+  # dropping three of them is not that the gate builds less - it is that the
+  # gate stops answering the question it exists to answer.  An FBC fragment
+  # is per architecture: the catalog pins image references, and a reference
+  # that resolves on x86_64 is not evidence it resolves on s390x.  A green
+  # run in this configuration says the catalog is coherent on x86_64 and says
+  # nothing whatever about the other three.
+  #
+  # What buys that back is wall-clock.  Each platform pulls the ~1GB
+  # ose-operator-registry-rhel9 base and runs `opm serve --cache-only` over
+  # eighty-odd bundles, and this is the last of four sequential blocks, so
+  # the fan-out lands on the end of an already long run.  While the gate is
+  # being debugged, the iteration cost of that is what is being paid, not the
+  # coverage.
+  #
+  # Note the shape of the restored value when it goes back: linux/arm64, not
+  # the linux-m2xlarge/arm64 the operator push file uses.  The two release
+  # files genuinely differ on that; each is copied as it stands rather than
+  # reconciled.
+  #
+  # build-image-index above stays true at one platform.  It is not an
+  # optimisation that can follow this one: fbc-fragment-build.yaml is
+  # multi-platform-shaped even at a single platform, tagging per platform and
+  # leaving the index to carry the plain tag, so turning it off here is what
+  # made eg-<sha> not exist in run 13 and the gate go green with an empty
+  # FBC_IMAGE_DIGEST.
   - name: build-platforms
     value:
     - linux/x86_64
-    - linux/ppc64le
-    - linux/s390x
-    - linux/arm64
   - name: build-args-file
     value: catalog/catalog_build_args.map
   # A failed gate build is a signal to the gate, not to the release team.
