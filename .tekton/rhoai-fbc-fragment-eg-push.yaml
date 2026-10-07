@@ -1,0 +1,134 @@
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  annotations:
+    build.appstudio.openshift.io/repo: https://github.com/red-hat-data-services/RHOAI-Build-Config?rev={{revision}}
+    build.appstudio.redhat.com/commit_sha: '{{revision}}'
+    build.appstudio.redhat.com/target_branch: '{{target_branch}}'
+    pipelinesascode.tekton.dev/cancel-in-progress: "false"
+    pipelinesascode.tekton.dev/max-keep-runs: "3"
+    # No build-nudge-files: an FBC fragment is the last link in the chain, and Block 3 hands its digest on as FBC_IMAGE_REF_BY_DIGEST
+    # eg-fbc-* requires an "early-gate:" subject: branch creation is itself a push, and a reprocessed catalog may legitimately be empty
+    # push-fbc-to-ephemeral-branch commits with --allow-empty and refuses any other subject, so the guarantee holds from both ends
+    # eg-fbc-*, not eg-bundle-*: sharing Block 2's branch would make every catalog push rebuild the bundle
+    # The second arm is the release file's expression with only branch and file names changed, catalog-patch interlock included
+    # files.all is scoped to that arm: it is empty on a no-op push, so hoisting it would drop exactly the --allow-empty runs
+    # `\\.` in matches(), not `\.`: a lone `\.` is not a CEL escape, and a parse error kills both arms with no check-run registered
+    # TODO(prod): the second arm matches gap-poc, which does not exist in
+    # red-hat-data-services/RHOAI-Build-Config. It is dead rather than harmful
+    # there, but repointing it at a release branch would race the release build -
+    # decide deliberately whether to drop the arm or give it a real branch.
+    pipelinesascode.tekton.dev/on-cel-expression: |
+      event == "push"
+      && (
+           ( target_branch.startsWith("eg-fbc-")
+             && event_title.startsWith("early-gate:") )
+           ||
+           ( target_branch == "gap-poc"
+             && ( "catalog/**".pathChanged()
+                  || ".tekton/rhoai-fbc-fragment-eg-push.yaml".pathChanged() )
+             && files.all.exists(p, !p.matches('^catalog/catalog-patch\\.yaml$')) )
+         )
+  # TODO(prod): Konflux Components are immutable, so these three cannot be renamed.
+  # A dedicated early-gate Component has to be created in the production tenant and
+  # the application/component/name below set to it.
+  labels:
+    appstudio.openshift.io/application: gap-poc
+    appstudio.openshift.io/component: rhoai-fbc-fragment-gap
+    pipelines.appstudio.openshift.io/type: build
+  name: rhoai-fbc-fragment-gap-on-push
+  namespace: rhoai-tenant
+spec:
+  # The release file's values, unchanged. What actually bounds the gate is monitor-fbc-build's fbc-build-timeout-minutes, not this ceiling.
+  timeouts:
+    pipeline: 10h
+    tasks: 8h
+  params:
+  - name: git-url
+    value: '{{source_url}}'
+  - name: revision
+    value: '{{revision}}'
+  # No additional-tags: the primary tag below is itself branch-qualified, so a second copy would be the same string twice
+  # The repository must be PUBLIC: monitor-fbc-build resolves FBC_IMAGE_DIGEST through quay.io's anonymous registry v2 token
+  # Deliberately not quay.io/rhoai/rhoai-fbc-fragment - a fragment assembled from unmerged PRs must not land in the release repository under any tag
+  # pull-request-pipelines is shared between components, hence the component-name lead; the rest is {{target_branch}}-{{revision}}, so the eg- marker is enforced by the trigger, not by convention
+  # Worst case is 117 characters with buildah's -linux-x86-64 platform suffix, inside Quay's 128-character limit but not by much
+  # The prefix is the production Konflux component name, so an image says which block it came from and means the same here as in prod
+  # Changing this string means changing image-tag on monitor-fbc-build in konflux-central's early-gate pipeline in the same breath - the monitor reconstructs the tag rather than reading it
+  - name: output-image
+    value: quay.io/rhoai/pull-request-pipelines:rhoai-fbc-fragment-{{target_branch}}-{{revision}}
+  # No rhoai-version and no build-type.  The release file passes both, but that
+  # TODO(prod): no rhoai-version and no build-type. The release file passes both;
+  # confirm pipelines/fbc-fragment-build.yaml declares them before adding them here,
+  # since an undeclared param is a validation error rather than an ignored one.
+  - name: dockerfile
+    value: Dockerfile
+  # DR-F4. One OCP version, and it must be the one fbc-processor's OPENSHIFT_VERSION regenerates - changing it means changing fbc-openshift-version in konflux-central's early-gate pipeline too
+  # v4.19, matching the release file: five channels in catalog/v4.22 have two heads each, which `opm serve --cache-only` rejects as an invalid upgrade graph
+  # validate-fbc is what catches that; verify-fbc-images in the gate checks image references, not opm graph validity
+  - name: path-context
+    value: catalog/v4.19
+  - name: hermetic
+    value: true
+  # No prefetch-input: the catalog Dockerfile is a base image plus ADD and an `opm serve --cache-only`, so hermetic costs nothing
+  # false, matching the release file. "true" also drops validate-fbc, the only task checking opm schema and graph validity
+  - name: skip-checks
+    value: "false"
+  # The one check the gate drops deliberately: fbc-fips-check-oci-ta scans every relatedImage the fragment references and carries a 6h timeout of its own, which does not fit monitor-fbc-build's 90 minutes
+  # Deliberately not skip-checks: "true", which would take validate-fbc with it; skip-fips-check exists so the two are separable
+  - name: skip-fips-check
+    value: "true"
+  # true, matching the release file. false while iterating - one fewer task, and nothing in the gate reads it.
+  - name: build-source-image
+    value: true
+  # true, matching the release file. fbc-fragment-build.yaml is multi-platform-shaped even at one platform: it tags per platform and leaves build-image-index to create the index carrying the plain tag
+  # With this false the plain tag monitor-fbc-build reconstructs never exists, and the gate goes green with an empty FBC_IMAGE_DIGEST; monitor-pac-build's require-digest now fails rather than warns on that
+  - name: build-image-index
+    value: true
+  # TEMPORARY - x86_64 only while the gate is being brought up. Restore the four
+  # platforms below before this is relied on; the same deviation exists on the
+  # operator's early-gate push file and the two should be reverted together.
+  #
+  #   - name: build-platforms
+  #     value:
+  #     - linux/x86_64
+  #     - linux/ppc64le
+  #     - linux/s390x
+  #     - linux/arm64
+  #
+  # An FBC fragment is per architecture, so a green x86_64 run says nothing about the other three - what is bought back is wall-clock on the last of four sequential blocks
+  # Note the restored value's shape: linux/arm64, not the linux-m2xlarge/arm64 the operator push file uses; the two release files genuinely differ there
+  # build-image-index above stays true at one platform - see the note on it; turning it off is what made the plain tag not exist
+  - name: build-platforms
+    value:
+    - linux/x86_64
+  - name: build-args-file
+    value: catalog/catalog_build_args.map
+  # A failed gate build is a signal to the gate, not to the release team.
+  - name: enable-slack-failure-notification
+    value: "false"
+  # The success message is the half that was actually firing: share-fbc-details was guarded on tasks.status alone, so every green run announced an ephemeral branch that is deleted moments later
+  - name: enable-slack-success-notification
+    value: "false"
+  # No workflow_dispatch into red-hat-data-services from a gate build. conforma and smoke were already dormant behind is_nightly, but trigger-disconnectec-installer-helper's guard reads `is_nightly in ["true","false"]` - every value - so it dispatched on every FBC build.
+  - name: enable-downstream-triggers
+    value: "false"
+  pipelineRef:
+    resolver: git
+    params:
+    - name: url
+      value: https://github.com/red-hat-data-services/konflux-central.git
+    # Pinned to main rather than '{{ target_branch }}': the ephemeral eg-fbc-* branches do not exist in konflux-central and would never resolve
+    - name: revision
+      value: 'main'
+    - name: pathInRepo
+      value: pipelines/fbc-fragment-build.yaml
+  taskRunTemplate:
+    # Konflux mints a Component's push credential from that Component's containerImage, so the early-gate Component's own SA would 401 against the output-image above
+    # This is the SA of the pull-request-pipelines Component, which already holds a push credential for that repository
+    serviceAccountName: build-pipeline-pull-request-pipelines
+  workspaces:
+  - name: git-auth
+    secret:
+      secretName: '{{ git_auth_secret }}'
+status: {}

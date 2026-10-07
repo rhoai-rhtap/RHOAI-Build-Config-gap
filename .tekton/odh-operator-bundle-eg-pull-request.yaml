@@ -2,24 +2,25 @@ apiVersion: tekton.dev/v1
 kind: PipelineRun
 metadata:
   annotations:
-    build.appstudio.openshift.io/repo: https://github.com/rhoai-rhtap/RHOAI-Build-Config-gap?rev={{revision}}
+    build.appstudio.openshift.io/repo: https://github.com/red-hat-data-services/RHOAI-Build-Config?rev={{revision}}
     build.appstudio.redhat.com/commit_sha: '{{revision}}'
     build.appstudio.redhat.com/pull_request_number: '{{pull_request_number}}'
     build.appstudio.redhat.com/target_branch: '{{target_branch}}'
-    # Unlike the push pipeline: a PR that gets force-pushed should abandon the
-    # in-flight build rather than race it.
+    # Unlike the push pipeline: a force-pushed PR should abandon the in-flight build, not race it
     pipelinesascode.tekton.dev/cancel-in-progress: "true"
     pipelinesascode.tekton.dev/max-keep-runs: "3"
-    # No build-nudge-files - same reason as the push pipeline, and doubly so
-    # here: a PR build's image is expired after 5 days.
-    #
-    # Only bundle-affecting changes are worth a bundle build.  This repo also
-    # carries catalog/, helm/ and config/, none of which reach bundle/Dockerfile.
+    # No build-nudge-files, same as the push pipeline, and a PR image expires in 5 days
+    # Only bundle-affecting changes are worth a bundle build; catalog/, helm/ and config/ are not
+    # TODO(prod): this whole file is POC-scoped - it only fires on PRs against
+    # gap-poc, which does not exist in red-hat-data-services/RHOAI-Build-Config.
+    # Repoint it at a real branch or drop it; it is inert as written.
     pipelinesascode.tekton.dev/on-cel-expression: |
       event == "pull_request"
       && target_branch == "gap-poc"
       && ( "bundle/**".pathChanged()
-           || ".tekton/rhod-operator-bundle-gap-pull-request.yaml".pathChanged() )
+           || ".tekton/odh-operator-bundle-eg-pull-request.yaml".pathChanged() )
+  # TODO(prod): Konflux Components are immutable, so these cannot be renamed. A
+  # dedicated early-gate Component has to be created in the production tenant.
   labels:
     appstudio.openshift.io/application: gap-poc
     appstudio.openshift.io/component: rhod-operator-bundle-gap
@@ -32,15 +33,14 @@ spec:
     value: '{{source_url}}'
   - name: revision
     value: '{{revision}}'
-  # No additional-tags.  The release-shaped '{{target_branch}}-{{revision}}' tag
-  # is a durable pointer; a PR build is a disposable check and gets exactly one
-  # tag, which expires with the image.
+  # No additional-tags: a PR build is a disposable check and gets one tag, which expires with the image
+  # TODO(prod): Konflux mints the push credential from the Component's own
+  # containerImage, so this repository is fixed by whatever Component is created.
   - name: output-image
     value: quay.io/redhat-user-workloads/rhoai-tenant/rhod-operator-bundle-gap:on-pr-{{revision}}
   - name: image-expires-after
     value: 5d
-  # No rhoai-version - see the push pipeline; rhoai-rhtap/konflux-central's
-  # container-build.yaml does not declare the param.
+  # TODO(prod): no rhoai-version - prod's container-build.yaml declares one; see the push pipeline
   - name: dockerfile
     value: bundle/Dockerfile
   - name: path-context
@@ -59,13 +59,14 @@ spec:
     resolver: git
     params:
     - name: url
-      value: https://github.com/rhoai-rhtap/konflux-central.git
-    # Pinned to main: gap-poc does not exist in konflux-central.
+      value: https://github.com/red-hat-data-services/konflux-central.git
+    # Pinned to main: the branch this fires on does not exist in konflux-central
     - name: revision
       value: 'main'
     - name: pathInRepo
       value: pipelines/container-build.yaml
   taskRunTemplate:
+    # TODO(prod): must be the SA of whichever early-gate Component is created.
     serviceAccountName: build-pipeline-rhod-operator-bundle-gap
   workspaces:
   - name: git-auth
