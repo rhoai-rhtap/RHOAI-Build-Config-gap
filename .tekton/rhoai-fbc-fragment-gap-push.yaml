@@ -212,6 +212,29 @@ spec:
   # Reverted first, ahead of the remaining temporary settings, for that reason.
   - name: skip-checks
     value: "false"
+  # The one check the gate drops, and the only one it has ever dropped
+  # deliberately.  fbc-fips-check-oci-ta scans every relatedImage the
+  # fragment references - hundreds of them - and run 21 spent better than
+  # seven hours in post-build scanning before failing at 8h33m, with
+  # build-image-index long since finished at 14:06:31.  The task carries
+  # timeout: 6h of its own, which says what it is.
+  #
+  # monitor-fbc-build gives the whole FBC build 90 minutes.  That is not a
+  # number the FIPS scan can fit inside, and raising it to clear a six-hour
+  # task would mean a gate whose slowest leg is a scan of images the gate
+  # cannot change: the operands are already released, and their FIPS
+  # posture is not what this run is proposing to alter.
+  #
+  # Deliberately NOT skip-checks: "true", which was how the POC used to
+  # avoid this.  That switches off validate-fbc with it, and validate-fbc
+  # is the only task checking opm schema and graph validity - run 11 died
+  # because it was off.  skip-fips-check exists so the two are separable;
+  # see pipelines/fbc-fragment-build.yaml in konflux-central.
+  #
+  # The release file passes nothing here and so gets the "false" default,
+  # which is correct: for a release build the scan IS the deliverable.
+  - name: skip-fips-check
+    value: "true"
   # true, matching rhoai-fbc-fragment-v3-5-push.yaml.  false while iterating -
   # one fewer task, and nothing in the gate reads it.
   - name: build-source-image
