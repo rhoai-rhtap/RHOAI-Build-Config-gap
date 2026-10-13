@@ -50,8 +50,9 @@ run-name: 'Monitor Jenkins job'
 
 jobs:
   monitor-jenkins:
-    # No `environment:` key, for the reason given in
+    # Pinned to redhat-internal, for the reason given in
     # earlygate-smoke-trigger.yaml.
+    environment: redhat-internal
     runs-on: ${{ vars.EG_RUNNER_LABELS || 'ubuntu-latest' }}
     outputs:
       jenkins-job-url: ${{ steps.get-jenkins-job.outputs.jenkins-job-url }}

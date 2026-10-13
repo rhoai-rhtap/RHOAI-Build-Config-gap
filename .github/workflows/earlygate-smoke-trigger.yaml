@@ -72,13 +72,13 @@ jobs:
     # the Jenkins call can be exercised in a fork that has no such runner,
     # where the curl below will fail to connect and say so plainly.
     #
-    # There is deliberately no `environment:` key. Upstream pins this job to
-    # the redhat-internal environment, which is where its Jenkins credentials
-    # are scoped. An environment name cannot be made conditional - an empty
-    # string is a validation error, not an opt-out - so pinning one here
-    # would make the file unusable in any repository that has not created it
-    # first. Whoever promotes this to rhods-devops-infra adds the key back;
-    # in the POC fork the credentials are repository-level secrets.
+    # Pinned to redhat-internal, matching upstream, which is where the Jenkins
+    # credentials are scoped. This key used to be omitted because an
+    # environment name cannot be made conditional - an empty string is a
+    # validation error, not an opt-out - so naming one the repository had not
+    # created would have failed every run. The environment now exists here, so
+    # the reason to omit it is gone and the file matches production.
+    environment: redhat-internal
     runs-on: ${{ vars.EG_RUNNER_LABELS || 'ubuntu-latest' }}
     env:
       JENKINS_BASE_URL: ${{ vars.JENKINS_BASE_URL }}
