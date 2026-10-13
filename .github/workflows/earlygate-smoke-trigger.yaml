@@ -1,0 +1,248 @@
+# Early Gate Block 4 - Jenkins smoke test trigger
+#
+# POC copy of red-hat-data-services/rhods-devops-infra/.github/workflows/
+# earlygate-smoke-trigger.yaml, adapted to the input contract that Block 4's
+# trigger-test-pipeline task actually dispatches.
+#
+# The filename must stay exactly as it is: the Tekton task addresses this
+# workflow by name through the workflow_dispatch REST API, and the name is the
+# address.
+#
+# The Jenkins call below is the real one, unchanged from production.  Nothing
+# here is stubbed - the whole point of this copy is to exercise the live flow.
+#
+# Every divergence from the production file is marked "EG ADAPTATION" and is
+# summarised in the PR description.  Those marks are the specification for the
+# handover PR against rhods-devops-infra.
+
+name: Trigger Early Gate Tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      repositories:
+        type: string
+        description: "Provide repositories"
+        required: true
+      pr_number:
+        description: "PR number for correlation ID and FBC tag"
+        required: true
+        type: string
+      correlation_id:
+        description: "Correlation ID eg-<dtstamp>"
+        required: true
+        type: string
+
+      # EG ADAPTATION: was required:true in production.  Block 4 does not send
+      # fbc_tag at all - it sends rhoai_version plus three by-digest image refs
+      # - so a required fbc_tag makes every dispatch fail 422 before the
+      # workflow starts.  Kept as an optional input rather than deleted so that
+      # the existing repository_dispatch callers keep working unchanged.
+      fbc_tag:
+        description: "FBC tag to trigger the job. Use 'odh-stable' for ODH nightly. Optional: rhoai_version wins when both are set"
+        required: false
+        default: ""
+        type: string
+
+      # EG ADAPTATION: new input.  Block 4 passes the release the gate is
+      # running for explicitly, instead of overloading fbc_tag to mean both the
+      # tag to install and the version to test.
+      rhoai_version:
+        description: "RHOAI release this gate run is for, e.g. 3.5"
+        required: false
+        default: ""
+        type: string
+
+      # EG ADAPTATION: three new inputs.  This is the substantive difference
+      # between the gate and the production trigger, and the reason Block 4
+      # exists in the form it does: the early gate hands over images by digest,
+      # never by tag.  A tag is mutable - rebuild the same commit and it moves -
+      # so a smoke test that resolved a tag could install something other than
+      # what the gate built and verified.  See the header of
+      # early-gate/early-gate-test-pipeline.yaml in konflux-central.
+      operator_image:
+        description: "Block 1 operator image, repo@sha256:<64 hex>"
+        required: false
+        default: ""
+        type: string
+      bundle_image:
+        description: "Block 2 bundle image, repo@sha256:<64 hex>"
+        required: false
+        default: ""
+        type: string
+      fbc_image:
+        description: "Block 3 FBC fragment image, repo@sha256:<64 hex>"
+        required: false
+        default: ""
+        type: string
+
+      # EG ADAPTATION: opt-in, defaulting off.  The Jenkins job
+      # devops/early-gate-tests declares RHOAI_VERSION, GITHUB_REPO and
+      # CORRELATION_ID and nothing else, so forwarding the digests is only
+      # useful once that job declares parameters to receive them.  Off by
+      # default means the first POC run exercises the proven call; flip it on
+      # once Jenkins is ready, without touching this file's logic.
+      send_digests:
+        description: "Forward the three image digests to Jenkins as build parameters. Requires the Jenkins job to declare them"
+        required: false
+        default: "false"
+        type: string
+
+  repository_dispatch:
+    types: [early_gate_tests]
+
+permissions:
+  contents: read
+
+run-name: 'Trigger Early Gate Tests for ${{ github.event.inputs.rhoai_version || github.event.inputs.fbc_tag || github.event.client_payload.fbc_tag }} (PR #${{ github.event.inputs.pr_number || github.event.client_payload.pr_number }})'
+
+jobs:
+  trigger-jenkins:
+    # Unchanged from production, and load-bearing: the Jenkins host below is on
+    # the Red Hat internal network, which a GitHub-hosted runner cannot reach.
+    # EG ADAPTATION: production runs on the konflux runners; this fork has
+    # devops-ci-host-7, labelled "devops".  Environmental only - the Jenkins
+    # host is on the Red Hat internal network, so a GitHub-hosted runner
+    # cannot reach it either way.  Do not carry this line back to production.
+    runs-on: [self-hosted, devops]
+    environment: redhat-internal
+    outputs:
+      queue-url: ${{ steps.trigger-jenkins.outputs.queue-url }}
+    env:
+      FBC_TAG: ${{ github.event.inputs.fbc_tag || github.event.client_payload.fbc_tag }}
+      REPO_NAME: ${{ github.event.inputs.repositories || github.event.client_payload.repositories }}
+      PR_NUMBER: ${{ github.event.inputs.pr_number || github.event.client_payload.pr_number }}
+      CORRELATION_ID: ${{ github.event.inputs.correlation_id || github.event.client_payload.correlation_id }}
+      # EG ADAPTATION: the four new inputs, with client_payload fallbacks so the
+      # repository_dispatch path can grow into them later
+      RHOAI_VERSION_INPUT: ${{ github.event.inputs.rhoai_version || github.event.client_payload.rhoai_version }}
+      OPERATOR_IMAGE: ${{ github.event.inputs.operator_image || github.event.client_payload.operator_image }}
+      BUNDLE_IMAGE: ${{ github.event.inputs.bundle_image || github.event.client_payload.bundle_image }}
+      FBC_IMAGE: ${{ github.event.inputs.fbc_image || github.event.client_payload.fbc_image }}
+      SEND_DIGESTS: ${{ github.event.inputs.send_digests || github.event.client_payload.send_digests || 'false' }}
+    steps:
+      - name: Print Workflow Inputs
+        run: |
+          echo "Repository: ${REPO_NAME}"
+          echo "PR Number: ${PR_NUMBER}"
+          echo "Correlation ID: ${CORRELATION_ID}"
+          # EG ADAPTATION: the digests are echoed so that a run is traceable to
+          # the exact images the gate built, whether or not Jenkins receives them
+          echo "Operator image: ${OPERATOR_IMAGE:-<not sent>}"
+          echo "Bundle image:   ${BUNDLE_IMAGE:-<not sent>}"
+          echo "FBC image:      ${FBC_IMAGE:-<not sent>}"
+
+      # EG ADAPTATION: production reads RHOAI_VERSION straight off fbc_tag.
+      # Block 4 sends rhoai_version instead, so resolve one from the other and
+      # fail loudly when neither arrives, rather than handing Jenkins an empty
+      # RHOAI_VERSION and letting it resolve to whatever that means there.
+      - name: Resolve RHOAI version
+        run: |
+          RESOLVED="${RHOAI_VERSION_INPUT:-${FBC_TAG}}"
+          if [ -z "${RESOLVED}" ]; then
+            echo "ERROR: neither rhoai_version nor fbc_tag was provided."
+            echo "  Block 4 sends rhoai_version; the repository_dispatch path sends fbc_tag."
+            echo "  Jenkins needs one of them as RHOAI_VERSION."
+            exit 1
+          fi
+          echo "RHOAI_VERSION=${RESOLVED}" >> $GITHUB_ENV
+          echo "Resolved RHOAI_VERSION=${RESOLVED}"
+
+      # EG ADAPTATION: DR-6 belt and braces.  trigger-test-pipeline already
+      # refuses to dispatch on a release-tagged image, but this workflow is also
+      # reachable by hand and by repository_dispatch, where that check does not
+      # run.  An early-gate smoke test must never install a release artefact.
+      - name: Reject release-tagged images
+        if: ${{ env.OPERATOR_IMAGE != '' || env.BUNDLE_IMAGE != '' || env.FBC_IMAGE != '' }}
+        run: |
+          VIOLATIONS=0
+          for ref in "${OPERATOR_IMAGE}" "${BUNDLE_IMAGE}" "${FBC_IMAGE}"; do
+            [ -z "${ref}" ] && continue
+            case "${ref}" in
+              *@sha256:*) ;;
+              *)
+                echo "ERROR: '${ref}' is not digest-pinned."
+                VIOLATIONS=$((VIOLATIONS + 1))
+                continue
+                ;;
+            esac
+            if echo "${ref}" | grep -qE ':(rhoai-[0-9]+\.[0-9]+([.-].*)?|odh-stable|latest|stable|[^@]*-nightly)@'; then
+              echo "ERROR: '${ref}' carries a release tag."
+              VIOLATIONS=$((VIOLATIONS + 1))
+            fi
+          done
+          if [ "${VIOLATIONS}" -gt 0 ]; then
+            echo "Refusing to trigger the smoke test: ${VIOLATIONS} offending image reference(s) above."
+            exit 1
+          fi
+          echo "All supplied image references are digest-pinned and carry no release tag."
+
+      - name: Get Jenkins Crumb
+        id: get-crumb
+        run: |
+          CRUMB=$(curl -s -k \
+            -u "${{ secrets.JENKINS_USERNAME }}:${{ secrets.JENKINS_TOKEN }}" \
+            "https://jenkins-csb-rhods-opendatascience.dno.corp.redhat.com/crumbIssuer/api/json" | jq -r .crumb)
+          if [ -z "$CRUMB" ] || [ "$CRUMB" = "null" ]; then
+            echo "ERROR: Failed to get Jenkins crumb. Check JENKINS_USERNAME/JENKINS_TOKEN secrets."
+            exit 1
+          fi
+          echo "CRUMB=$CRUMB" >> $GITHUB_ENV
+
+      - name: Trigger Jenkins Job
+        id: trigger-jenkins
+        run: |
+          echo "Triggering Jenkins Early Gate Tests"
+          echo "  RHOAI_VERSION: $RHOAI_VERSION"
+          echo "  GITHUB_REPO: $REPO_NAME"
+          echo "  CORRELATION_ID: $CORRELATION_ID"
+
+          # EG ADAPTATION: the three production parameters are always sent and
+          # are unchanged.  The digests are appended only when send_digests is
+          # true, because Jenkins silently drops - or on a strict job, rejects -
+          # parameters it does not declare.
+          DIGEST_ARGS=()
+          if [ "${SEND_DIGESTS}" = "true" ]; then
+            echo "  OPERATOR_IMAGE: $OPERATOR_IMAGE"
+            echo "  BUNDLE_IMAGE: $BUNDLE_IMAGE"
+            echo "  FBC_IMAGE: $FBC_IMAGE"
+            DIGEST_ARGS=(
+              --data-urlencode "OPERATOR_IMAGE=$OPERATOR_IMAGE"
+              --data-urlencode "BUNDLE_IMAGE=$BUNDLE_IMAGE"
+              --data-urlencode "FBC_IMAGE=$FBC_IMAGE"
+            )
+          else
+            echo "  (digests not forwarded: send_digests is '${SEND_DIGESTS}')"
+          fi
+
+          HTTP_CODE=$(curl -k -s -o /tmp/jenkins_body.txt -w "%{http_code}" -D /tmp/jenkins_headers.txt \
+            --user "${{ secrets.JENKINS_USERNAME }}:${{ secrets.JENKINS_TOKEN }}" \
+            -X POST "https://jenkins-csb-rhods-opendatascience.dno.corp.redhat.com/job/devops/job/early-gate-tests/buildWithParameters?token=automation" \
+              -H "Jenkins-Crumb: $CRUMB" \
+              --data-urlencode "RHOAI_VERSION=$RHOAI_VERSION" \
+              --data-urlencode "GITHUB_REPO=$REPO_NAME" \
+              --data-urlencode "CORRELATION_ID=$CORRELATION_ID" \
+              "${DIGEST_ARGS[@]}")
+          echo "Jenkins API response code: $HTTP_CODE"
+          if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 400 ]; then
+            echo "ERROR: Jenkins returned HTTP $HTTP_CODE"
+            echo "Response headers:"
+            cat /tmp/jenkins_headers.txt
+            echo "Response body:"
+            cat /tmp/jenkins_body.txt
+            exit 1
+          fi
+          QUEUE_URL=$(grep -i '^location:' /tmp/jenkins_headers.txt | sed 's/[Ll]ocation: *//;s/\r//;s|/$||' || true)
+          # Printed, not only written to GITHUB_OUTPUT: workflow_dispatch runs do
+          # not expose job outputs over the REST API, so Block 4 reads this line
+          # out of the run log.  Do not drop or reword it.
+          echo "Queue URL: $QUEUE_URL"
+          if [ -z "$QUEUE_URL" ]; then
+            echo "ERROR: Jenkins returned HTTP $HTTP_CODE but no Location header."
+            echo "Response headers:"
+            cat /tmp/jenkins_headers.txt
+            echo "Response body:"
+            cat /tmp/jenkins_body.txt
+            exit 1
+          fi
+          echo "queue-url=$QUEUE_URL" >> $GITHUB_OUTPUT

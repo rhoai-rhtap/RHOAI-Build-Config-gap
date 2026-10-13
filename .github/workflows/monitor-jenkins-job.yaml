@@ -1,0 +1,135 @@
+# Early Gate Block 4 - Jenkins job monitor
+#
+# POC copy of red-hat-data-services/rhods-devops-infra/.github/workflows/
+# monitor-jenkins-job.yaml.
+#
+# NO CONTRACT ADAPTATIONS.  The production file already satisfies Block 4 on
+# both sides, which is worth stating explicitly so nobody goes looking for
+# changes that are not here:
+#
+#   inputs   queue-url and job-url, both optional - exactly what
+#            early-gate/tasks/monitor-jenkins-job.yaml dispatches, one
+#            workflow run per poll.
+#
+#   outputs  the task scrapes "jenkins-job-url=" and "jenkins-job-status="
+#            out of the run log, because workflow_dispatch runs do not expose
+#            job outputs over the REST API.  Both are echoed to stdout as well
+#            as written to GITHUB_OUTPUT below.  Do not drop the bare echo
+#            lines: GITHUB_OUTPUT alone is invisible to the task.
+#
+# The one divergence from production is the runner label, marked
+# "EG ADAPTATION" below.  It is environmental, not contractual: production
+# runs on the konflux runners, the POC fork has devops-ci-host-7 labelled
+# "devops".  Do NOT carry that line back to rhods-devops-infra.
+#
+# The filename must stay exactly as it is - the Tekton task addresses this
+# workflow by name through the REST API.
+#
+# Kept as a copy in this repo only so that the POC can point
+# github-workflow-repo at a repository it controls.  Production keeps using
+# the rhods-devops-infra original.
+
+name: Monitor Jenkins Job
+
+on:
+  workflow_dispatch:
+    inputs:
+      queue-url:
+        type: string
+        description: "Jenkins queue URL to resolve the job URL from"
+        required: false
+        default: ""
+      job-url:
+        type: string
+        description: "Jenkins job URL to monitor"
+        required: false
+        default: ""
+
+  workflow_call:
+    inputs:
+      queue-url:
+        type: string
+        description: "Jenkins queue URL to resolve the job URL from"
+        required: false
+        default: ""
+      job-url:
+        type: string
+        description: "Jenkins job URL to monitor"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+run-name: 'Monitor Jenkins Job'
+
+jobs:
+  monitor-jenkins:
+    # EG ADAPTATION: production runs on the konflux runners; this fork has
+    # devops-ci-host-7, labelled "devops".  Environmental only - the Jenkins
+    # host is on the Red Hat internal network, so a GitHub-hosted runner
+    # cannot reach it either way.  Do not carry this line back to production.
+    runs-on: [self-hosted, devops]
+    environment: redhat-internal
+    outputs:
+      jenkins-job-url: ${{ steps.get-jenkins-job.outputs.jenkins-job-url }}
+      jenkins-job-status: ${{ steps.get-job-status.outputs.jenkins-job-status }}
+    env:
+      QUEUE_URL: ${{ inputs.queue-url }}
+      JOB_URL: ${{ inputs.job-url }}
+    steps:
+      - name: Get Jenkins Crumb
+        id: get-crumb
+        run: |
+          CRUMB=$(curl -s -k \
+            -u "${{ secrets.JENKINS_USERNAME }}:${{ secrets.JENKINS_TOKEN }}" \
+            "https://jenkins-csb-rhods-opendatascience.dno.corp.redhat.com/crumbIssuer/api/json" | jq -r .crumb)
+          echo "CRUMB=$CRUMB" >> $GITHUB_ENV
+
+      - name: Get Jenkins Job URL from Queue
+        id: get-jenkins-job
+        if: ${{ inputs.job-url == '' && inputs.queue-url != '' }}
+        run: |
+          # Ensure trailing slash before appending api/json
+          QUEUE_URL="${QUEUE_URL%/}/"
+          echo "Resolving job URL from queue: $QUEUE_URL"
+          HTTP_CODE=$(curl -s -k -o /tmp/queue_response.txt -w "%{http_code}" \
+            -u "${{ secrets.JENKINS_USERNAME }}:${{ secrets.JENKINS_TOKEN }}" \
+            -H "Jenkins-Crumb: $CRUMB" \
+            "${QUEUE_URL}api/json")
+          RESPONSE=$(cat /tmp/queue_response.txt)
+          echo "Queue API HTTP code: $HTTP_CODE"
+          if [ "$HTTP_CODE" -ge 400 ]; then
+            echo "Queue item no longer available (HTTP $HTTP_CODE). It may have expired after the job started."
+            exit 1
+          fi
+          if ! echo "$RESPONSE" | jq empty 2>/dev/null; then
+            echo "Queue API returned non-JSON response (HTTP $HTTP_CODE):"
+            echo "$RESPONSE" | head -5
+            exit 1
+          fi
+          JENKINS_JOB_URL=$(echo "$RESPONSE" | jq -r '.executable.url // empty')
+          if [ -z "$JENKINS_JOB_URL" ]; then
+            echo "Job has not started yet or queue item has expired"
+            echo "Queue response: $RESPONSE"
+            exit 1
+          fi
+          echo "Jenkins Job URL: $JENKINS_JOB_URL"
+          echo "jenkins-job-url=$JENKINS_JOB_URL"
+          echo "jenkins-job-url=$JENKINS_JOB_URL" >> $GITHUB_OUTPUT
+
+      - name: Get Jenkins Job Status
+        id: get-job-status
+        if: ${{ inputs.job-url != '' }}
+        run: |
+          # Ensure trailing slash before appending api/json
+          JOB_URL="${JOB_URL%/}/"
+          echo "Checking status of job: $JOB_URL"
+          RESPONSE=$(curl -s -k \
+            -u "${{ secrets.JENKINS_USERNAME }}:${{ secrets.JENKINS_TOKEN }}" \
+            -H "Jenkins-Crumb: $CRUMB" \
+            "${JOB_URL}api/json")
+          JENKINS_JOB_STATUS=$(echo "$RESPONSE" | jq -r '.result // "IN_PROGRESS"')
+          echo "Jenkins Job Status: $JENKINS_JOB_STATUS"
+          echo "jenkins-job-status=$JENKINS_JOB_STATUS"
+          echo "jenkins-job-status=$JENKINS_JOB_STATUS" >> $GITHUB_OUTPUT
