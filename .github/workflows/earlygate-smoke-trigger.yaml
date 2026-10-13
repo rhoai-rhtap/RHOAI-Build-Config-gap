@@ -79,7 +79,13 @@ jobs:
     # created would have failed every run. The environment now exists here, so
     # the reason to omit it is gone and the file matches production.
     environment: redhat-internal
-    runs-on: ${{ vars.EG_RUNNER_LABELS || 'ubuntu-latest' }}
+    # A real YAML list, not a variable.  EG_RUNNER_LABELS held the string
+    # '["self-hosted", "devops"]', and Actions variables are strings - the
+    # expression was substituted verbatim, so runs-on received ONE label whose
+    # literal text was ["self-hosted", "devops"].  No runner carries that
+    # name, so every job queued indefinitely instead of failing.  A wrong
+    # runner label never errors, it just waits - there is no log to read.
+    runs-on: [self-hosted, devops]
     env:
       JENKINS_BASE_URL: ${{ vars.JENKINS_BASE_URL }}
       JENKINS_JOB_PATH: ${{ vars.JENKINS_JOB_PATH || 'job/devops/job/early-gate-tests' }}

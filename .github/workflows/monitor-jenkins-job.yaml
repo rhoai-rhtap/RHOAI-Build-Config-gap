@@ -53,7 +53,13 @@ jobs:
     # Pinned to redhat-internal, for the reason given in
     # earlygate-smoke-trigger.yaml.
     environment: redhat-internal
-    runs-on: ${{ vars.EG_RUNNER_LABELS || 'ubuntu-latest' }}
+    # A real YAML list, not a variable.  EG_RUNNER_LABELS held the string
+    # '["self-hosted", "devops"]', and Actions variables are strings - the
+    # expression was substituted verbatim, so runs-on received ONE label whose
+    # literal text was ["self-hosted", "devops"].  No runner carries that
+    # name, so every job queued indefinitely instead of failing.  A wrong
+    # runner label never errors, it just waits - there is no log to read.
+    runs-on: [self-hosted, devops]
     outputs:
       jenkins-job-url: ${{ steps.get-jenkins-job.outputs.jenkins-job-url }}
       jenkins-job-status: ${{ steps.get-job-status.outputs.jenkins-job-status }}
