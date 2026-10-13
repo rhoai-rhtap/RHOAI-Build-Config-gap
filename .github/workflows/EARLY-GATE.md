@@ -107,7 +107,7 @@ None of these are in this repo today. All three are required.
 |---|---|---|
 | Secrets `JENKINS_USERNAME`, `JENKINS_TOKEN` | Jenkins crumb + build trigger | ❌ no repo secrets exist |
 | Environment `redhat-internal` | Both jobs declare it | ❌ no environments exist |
-| Self-hosted runners labelled `self-hosted, konflux` | `jenkins-csb-rhods-opendatascience.dno.corp.redhat.com` is **internal** — a GitHub-hosted runner cannot reach it | ❌ none at repo level; org level not verifiable without admin |
+| Self-hosted runner labelled `self-hosted, devops` | `jenkins-csb-rhods-opendatascience.dno.corp.redhat.com` is **internal** — a GitHub-hosted runner cannot reach it | `devops-ci-host-7` carries the `devops` label; confirm it is reachable from this repo |
 
 Also needed outside this repo:
 
@@ -132,7 +132,12 @@ workflow changes:
 4. Optionally adopt `send_digests` and the release-tag guard.
 
 `monitor-jenkins-job.yaml` needs **nothing** — production already satisfies the
-contract, which is why the copy here is unmodified.
+contract on both sides.
+
+> ⚠ **Do not carry the `runs-on` line back.** Both copies here run on
+> `[self-hosted, devops]` because this fork's runner is `devops-ci-host-7`;
+> production runs on the konflux runners. That divergence is environmental,
+> not contractual, and is marked `EG ADAPTATION` at the line in both files.
 
 **Separately, and not blocking:** for the gate to install what it actually
 built, the Jenkins job `devops/early-gate-tests` has to accept a by-digest

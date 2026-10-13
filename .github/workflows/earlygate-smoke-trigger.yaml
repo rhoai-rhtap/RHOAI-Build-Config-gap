@@ -100,7 +100,11 @@ jobs:
   trigger-jenkins:
     # Unchanged from production, and load-bearing: the Jenkins host below is on
     # the Red Hat internal network, which a GitHub-hosted runner cannot reach.
-    runs-on: [self-hosted, konflux]
+    # EG ADAPTATION: production runs on the konflux runners; this fork has
+    # devops-ci-host-7, labelled "devops".  Environmental only - the Jenkins
+    # host is on the Red Hat internal network, so a GitHub-hosted runner
+    # cannot reach it either way.  Do not carry this line back to production.
+    runs-on: [self-hosted, devops]
     environment: redhat-internal
     outputs:
       queue-url: ${{ steps.trigger-jenkins.outputs.queue-url }}
