@@ -88,7 +88,7 @@ jobs:
     runs-on: [self-hosted, devops]
     env:
       JENKINS_BASE_URL: ${{ vars.JENKINS_BASE_URL }}
-      JENKINS_JOB_PATH: ${{ vars.JENKINS_JOB_PATH || 'job/devops/job/early-gate-tests' }}
+      JENKINS_JOB_PATH: ${{ vars.JENKINS_JOB_PATH || 'job/devops/job/promotion-gate-tests' }}
       REPOSITORIES: ${{ inputs.repositories }}
       PR_NUMBER: ${{ inputs.pr_number }}
       CORRELATION_ID: ${{ inputs.correlation_id }}
