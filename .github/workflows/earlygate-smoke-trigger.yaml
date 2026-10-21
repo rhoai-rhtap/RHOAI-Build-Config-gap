@@ -13,9 +13,11 @@ name: Trigger Early Gate Tests
 #      the catalog a mutable reference. Here the release line and the three
 #      images are separate inputs, and the images are digests.
 #
-#   2. The three image references are forwarded to Jenkins as OPERATOR_IMAGE,
-#      BUNDLE_IMAGE and FBC_IMAGE. See the note above the Jenkins call about
-#      what has to exist on the Jenkins side for those to take effect.
+#   2. The FBC image is sent to Jenkins as ODS_BUILD_URL (the parameter name
+#      the promotion-gate-tests job expects). When ODS_BUILD_URL contains a
+#      full image reference (like a digest), the job uses it directly without
+#      tracer resolution. FBC_IMAGE, OPERATOR_IMAGE and BUNDLE_IMAGE are also
+#      sent for future compatibility and reporting.
 #
 # This file lives in the POC fork rather than in rhods-devops-infra because
 # that is where the early gate's eg-github-token already has actions:write.
@@ -142,22 +144,24 @@ jobs:
       - name: Trigger the Jenkins job
         id: trigger-jenkins
         run: |
-          # RHOAI_VERSION, GITHUB_REPO and CORRELATION_ID are the three
-          # parameters the devops/early-gate-tests job has always taken.
+          # The promotion-gate-tests job accepts ODS_BUILD_URL as the FBC image.
+          # When ODS_BUILD_URL is a full image reference (e.g., a digest like
+          # quay.io/rhoai/rhoai-fbc-fragment@sha256:...), the job uses it
+          # directly for deployment without tracer resolution. This eliminates
+          # the mutable reference: the exact image built by this gate is what
+          # gets tested.
           #
-          # OPERATOR_IMAGE, BUNDLE_IMAGE and FBC_IMAGE are new, and the
-          # Jenkins job has to declare them before they do anything: Jenkins
-          # discards parameters a job does not define, silently, with a 201
-          # as if they had been accepted. Until that job is updated, the
-          # smoke test will still install whatever RHOAI_VERSION resolves to
-          # rather than the digest this gate built. That is the one remaining
-          # mutable reference in the chain and it is on the Jenkins side.
+          # OPERATOR_IMAGE, BUNDLE_IMAGE and FBC_IMAGE are sent for reporting
+          # and future Jenkins support. Jenkins silently discards parameters
+          # it does not define, so these have no effect until the job is
+          # updated to accept them.
           HTTP_CODE=$(curl -sS -k -o "${RUNNER_TEMP}/body.txt" -w '%{http_code}' \
             -D "${RUNNER_TEMP}/headers.txt" \
             --netrc-file "${RUNNER_TEMP}/netrc" \
             -X POST "${JENKINS_BASE_URL%/}/${JENKINS_JOB_PATH#/}/buildWithParameters" \
             -H "Jenkins-Crumb: ${CRUMB}" \
             --data-urlencode "RHOAI_VERSION=${RHOAI_VERSION}" \
+            --data-urlencode "ODS_BUILD_URL=${FBC_IMAGE}" \
             --data-urlencode "GITHUB_REPO=${REPOSITORIES}" \
             --data-urlencode "CORRELATION_ID=${CORRELATION_ID}" \
             --data-urlencode "PR_NUMBER=${PR_NUMBER}" \
